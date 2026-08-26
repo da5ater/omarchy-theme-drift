@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.da5ater.theme-drift",
+  "name": "Theme Drift",
+  "version": "1.0.0",
+  "author": "Mohamed Osama Mohamed Khater",
+  "license": "MIT",
+  "description": "Browse and rotate through the full Omarchy theme catalog, with favorites, hidden themes, and permanent mode.",
+  "kinds": ["bar-widget", "overlay", "service"],
+  "keepLoaded": true,
+  "entryPoints": {
+    "barWidget": "BarWidget.qml",
+    "overlay": "GalleryOverlay.qml",
+    "service": "Service.qml"
+  },
+  "barWidget": {
+    "displayName": "Theme Drift",
+    "description": "Browse and rotate Omarchy themes",
+    "category": "Style",
+    "defaultSection": "right",
+    "aliases": ["themes", "theme-roulette", "theme-gallery"],
+    "allowMultiple": false
+  }
+}

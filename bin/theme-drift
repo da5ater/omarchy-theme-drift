@@ -1,0 +1,314 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/theme-drift"
+config_file="$state_dir/config.json"
+catalog_file="$state_dir/catalog.tsv"
+lock_file="${XDG_RUNTIME_DIR:-/tmp}/theme-drift.lock"
+omarchy_root="${OMARCHY_PATH:-/usr/share/omarchy}"
+user_themes="$HOME/.config/omarchy/themes"
+catalog_url="${THEME_DRIFT_CATALOG_URL:-https://omarchy.org/themes/}"
+catalog_max_age="${THEME_DRIFT_CATALOG_MAX_AGE:-21600}"
+
+boot_id() {
+  cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf 'unknown\n'
+}
+
+write_config() {
+  local temporary
+  temporary=$(mktemp "$state_dir/config.XXXXXX")
+  cat >"$temporary"
+  mv "$temporary" "$config_file"
+}
+
+ensure_config() {
+  mkdir -p "$state_dir"
+  if [[ ! -f $config_file ]]; then
+    jq -n --arg boot "$(boot_id)" '{version:3,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,rotationQueue:[],rotationCycle:[]}' >"$config_file"
+  elif [[ $(jq -r '.version // 1' "$config_file") -lt 3 ]]; then
+    jq '.version=3 | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
+  fi
+}
+
+slugify() {
+  sed -E 's/<[^>]+>//g' <<<"$1" | tr '[:upper:]' '[:lower:]' | tr ' ' '-'
+}
+
+repo_slug() {
+  local repo_path=$1 repo_name
+  repo_path=${repo_path%/}
+  repo_path=${repo_path%.git}
+  repo_name=${repo_path##*/}
+  sed -E 's/^omarchy-//; s/-theme$//' <<<"$repo_name" | tr '[:upper:]' '[:lower:]'
+}
+
+current_slug() {
+  local current_name
+  current_name=$(omarchy theme current 2>/dev/null || true)
+  slugify "$current_name"
+}
+
+installed_theme() {
+  local slug=$1
+  [[ -d $omarchy_root/themes/$slug || -d $user_themes/$slug ]]
+}
+
+local_preview_for() {
+  local slug=$1 candidate
+  for candidate in \
+    "$user_themes/$slug/preview.png" \
+    "$omarchy_root/themes/$slug/preview.png"; do
+    [[ -f $candidate ]] && { printf '%s\n' "$candidate"; return; }
+  done
+
+  for candidate in "$user_themes/$slug/backgrounds" "$omarchy_root/themes/$slug/backgrounds"; do
+    [[ -d $candidate ]] || continue
+    find "$candidate" -maxdepth 1 -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) -print -quit
+    return
+  done
+  printf '\n'
+}
+
+parse_catalog() {
+  perl -0777 -ne '
+    while (/<figure class="themes__theme">\s*<a href="([^"]+)"><img src="([^"]+)" alt="[^"]*"[^>]*><\/a>\s*<figcaption><a href="[^"]+">(.*?)<\/a><\/figcaption>\s*<\/figure>/sg) {
+      my ($repo, $image, $name) = ($1, $2, $3);
+      $name =~ s/&#39;/'"'"'/g;
+      $name =~ s/&amp;/&/g;
+      $name =~ s/&quot;/"/g;
+      $name =~ s/<[^>]+>//g;
+      $image = "https://omarchy.org$image" if $image =~ m{^/};
+      print "$repo\t$image\t$name\n";
+    }
+  ' "$1"
+}
+
+refresh_catalog() {
+  local now modified html_file parsed_file
+  now=$(date +%s)
+  modified=$(stat -c %Y "$catalog_file" 2>/dev/null || printf '0\n')
+  if [[ -s $catalog_file && $((now - modified)) -lt $catalog_max_age ]]; then
+    return
+  fi
+
+  html_file=$(mktemp "$state_dir/catalog.html.XXXXXX")
+  parsed_file=$(mktemp "$state_dir/catalog.tsv.XXXXXX")
+  if curl --fail --silent --show-error --location --max-time 15 "$catalog_url" --output "$html_file" \
+      && parse_catalog "$html_file" >"$parsed_file" \
+      && [[ $(wc -l <"$parsed_file") -ge 10 ]]; then
+    mv "$parsed_file" "$catalog_file"
+  else
+    rm -f "$parsed_file"
+    [[ -s $catalog_file ]] || { rm -f "$html_file"; return 1; }
+  fi
+  rm -f "$html_file"
+}
+
+catalog_rows() {
+  refresh_catalog || true
+  [[ -s $catalog_file ]] && cat "$catalog_file"
+}
+
+catalog_repo_for() {
+  local wanted=$1 repo image name slug
+  while IFS=$'\t' read -r repo image name; do
+    [[ -n $repo ]] || continue
+    slug=$(repo_slug "$repo")
+    [[ $slug == "$wanted" ]] && { printf '%s\n' "$repo"; return; }
+  done < <(catalog_rows)
+}
+
+emit_theme() {
+  local name=$1 slug=$2 preview=$3 installed=$4 catalog=$5 repo=$6 current=$7 config=$8
+  jq -cn \
+    --arg name "$name" --arg slug "$slug" --arg preview "$preview" --arg repo "$repo" --arg current "$current" \
+    --argjson installed "$installed" --argjson catalog "$catalog" --argjson config "$config" \
+    '{name:$name,slug:$slug,preview:$preview,repo:$repo,installed:$installed,catalog:$catalog,current:($slug==$current),favorite:($config.favorites|index($slug)!=null),hidden:($config.hidden|index($slug)!=null),permanent:($config.permanent==$slug)}'
+}
+
+list_themes() {
+  ensure_config
+  local current config name slug preview repo image installed
+  declare -A catalog_slugs=()
+  declare -A installed_names=()
+  current=$(current_slug)
+  config=$(<"$config_file")
+
+  while IFS= read -r name; do
+    [[ -n $name ]] || continue
+    installed_names["$(slugify "$name")"]=$name
+  done < <(omarchy theme list)
+
+  {
+    while IFS=$'\t' read -r repo image name; do
+      [[ -n $repo && -n $name ]] || continue
+      slug=$(repo_slug "$repo")
+      catalog_slugs["$slug"]=1
+      preview=$(local_preview_for "$slug")
+      [[ -n $preview ]] || preview=$image
+      installed=false
+      [[ -n ${installed_names[$slug]+x} ]] && installed=true
+      emit_theme "$name" "$slug" "$preview" "$installed" true "$repo" "$current" "$config"
+    done < <(catalog_rows)
+
+    for slug in "${!installed_names[@]}"; do
+      [[ -n ${catalog_slugs[$slug]+x} ]] && continue
+      name=${installed_names[$slug]}
+      preview=$(local_preview_for "$slug")
+      emit_theme "$name" "$slug" "$preview" true false "" "$current" "$config"
+    done
+  } | jq -s 'sort_by(.name | ascii_downcase)'
+}
+
+update_array() {
+  local key=$1 slug=$2 operation=$3
+  ensure_config
+  if [[ $operation == add ]]; then
+    jq --arg key "$key" --arg slug "$slug" '.[$key] = ((.[$key] + [$slug]) | unique)' "$config_file" | write_config
+  else
+    jq --arg key "$key" --arg slug "$slug" '.[$key] = [.[$key][] | select(. != $slug)]' "$config_file" | write_config
+  fi
+}
+
+install_and_apply() {
+  local slug=$1 repo
+  if installed_theme "$slug"; then
+    omarchy theme set "$slug"
+    return
+  fi
+
+  repo=$(catalog_repo_for "$slug")
+  if [[ -z $repo ]]; then
+    printf 'Theme %s is not installed and is no longer in the catalog\n' "$slug" >&2
+    return 1
+  fi
+  printf 'Installing %s from %s\n' "$slug" "$repo" >&2
+  omarchy theme install "$repo"
+  installed_theme "$slug" || {
+    printf 'Omarchy installed the repository, but theme %s was not discovered\n' "$slug" >&2
+    return 1
+  }
+}
+
+rotate_now() {
+  local reason=${1:-manual} config current chosen current_boot theme_json eligible_json queue_json cycle_json new_json shuffled_json
+  local -a shuffled=()
+  ensure_config
+  config=$(<"$config_file")
+  current_boot=$(boot_id)
+
+  if [[ $reason == boot && $(jq -r '.lastBootId // ""' <<<"$config") == "$current_boot" ]]; then
+    printf 'Already considered this boot\n'
+    return
+  fi
+  if [[ $(jq -r '.rotationEnabled' <<<"$config") != true ]]; then
+    jq --arg boot "$current_boot" '.lastBootId=$boot' "$config_file" | write_config
+    printf 'Permanent mode is active\n'
+    return
+  fi
+
+  current=$(current_slug)
+  theme_json=$(list_themes)
+  eligible_json=$(jq -c '[.[] | select(.hidden == false) | .slug] | unique' <<<"$theme_json")
+  if [[ $(jq 'length' <<<"$eligible_json") -eq 0 ]]; then
+    printf 'No themes are eligible for rotation\n' >&2
+    return 1
+  fi
+
+  config=$(<"$config_file")
+  queue_json=$(jq -c --argjson eligible "$eligible_json" '[.rotationQueue[]? | select(. as $slug | $eligible | index($slug))]' <<<"$config")
+  cycle_json=$(jq -c --argjson eligible "$eligible_json" '[.rotationCycle[]? | select(. as $slug | $eligible | index($slug))]' <<<"$config")
+  new_json=$(jq -cn --argjson eligible "$eligible_json" --argjson cycle "$cycle_json" '$eligible - $cycle')
+
+  if [[ $(jq 'length' <<<"$new_json") -gt 0 ]]; then
+    mapfile -t shuffled < <(jq -r '.[]' <<<"$new_json" | shuf)
+    shuffled_json=$(printf '%s\n' "${shuffled[@]}" | jq -R . | jq -sc '.')
+    queue_json=$(jq -cn --argjson queue "$queue_json" --argjson added "$shuffled_json" '$queue + $added')
+    cycle_json=$(jq -cn --argjson cycle "$cycle_json" --argjson added "$new_json" '($cycle + $added) | unique')
+  fi
+
+  if [[ $(jq 'length' <<<"$queue_json") -eq 0 ]]; then
+    mapfile -t shuffled < <(jq -r '.[]' <<<"$eligible_json" | shuf)
+    shuffled_json=$(printf '%s\n' "${shuffled[@]}" | jq -R . | jq -sc '.')
+    queue_json=$shuffled_json
+    cycle_json=$eligible_json
+  fi
+
+  if [[ $(jq 'length' <<<"$queue_json") -gt 1 && $(jq -r '.[0]' <<<"$queue_json") == "$current" ]]; then
+    queue_json=$(jq -c '.[1:] + [.[0]]' <<<"$queue_json")
+  fi
+  chosen=$(jq -r '.[0]' <<<"$queue_json")
+  install_and_apply "$chosen"
+  jq --arg slug "$chosen" --arg boot "$current_boot" --argjson queue "$queue_json" --argjson cycle "$cycle_json" \
+    '.lastTheme=$slug | .lastBootId=$boot | .rotationQueue=$queue[1:] | .rotationCycle=$cycle' "$config_file" | write_config
+  printf 'Drifted to %s\n' "$chosen"
+}
+
+main() {
+  local command=${1:-list} slug config is_favorite
+  shift || true
+  ensure_config
+  exec 9>"$lock_file"
+  flock 9
+
+  case "$command" in
+    list) list_themes ;;
+    refresh-catalog)
+      rm -f "$catalog_file"
+      refresh_catalog
+      printf 'Catalog refreshed: %s themes\n' "$(wc -l <"$catalog_file")"
+      ;;
+    favorite)
+      slug=${1:?theme slug required}
+      is_favorite=$(jq -r --arg slug "$slug" '.favorites | index($slug) != null' "$config_file")
+      if [[ $is_favorite == true ]]; then
+        update_array favorites "$slug" remove
+        printf 'Removed from favorites\n'
+      else
+        update_array favorites "$slug" add
+        update_array hidden "$slug" remove
+        printf 'Added to favorites\n'
+      fi
+      ;;
+    hide)
+      slug=${1:?theme slug required}
+      update_array hidden "$slug" add
+      update_array favorites "$slug" remove
+      config=$(<"$config_file")
+      if [[ $(jq -r '.permanent // ""' <<<"$config") == "$slug" ]]; then
+        jq '.permanent=null | .rotationEnabled=true' "$config_file" | write_config
+      fi
+      if [[ $(current_slug) == "$slug" ]]; then rotate_now manual; else printf 'Theme hidden\n'; fi
+      ;;
+    restore)
+      slug=${1:?theme slug required}
+      update_array hidden "$slug" remove
+      printf 'Theme restored\n'
+      ;;
+    apply)
+      slug=${1:?theme slug required}
+      install_and_apply "$slug"
+      jq --arg slug "$slug" '.lastTheme=$slug' "$config_file" | write_config
+      printf 'Theme applied\n'
+      ;;
+    permanent)
+      slug=${1:?theme slug required}
+      install_and_apply "$slug"
+      jq --arg slug "$slug" '.permanent=$slug | .rotationEnabled=false | .lastTheme=$slug' "$config_file" | write_config
+      update_array hidden "$slug" remove
+      printf 'Permanent mode enabled\n'
+      ;;
+    resume)
+      jq '.permanent=null | .rotationEnabled=true' "$config_file" | write_config
+      printf 'Rotation resumes next boot\n'
+      ;;
+    rotate-boot) rotate_now boot ;;
+    rotate-now) rotate_now manual ;;
+    *)
+      printf 'Usage: theme-drift {list|refresh-catalog|favorite|hide|restore|apply|permanent|resume|rotate-boot|rotate-now} [theme]\n' >&2
+      return 2
+      ;;
+  esac
+}
+
+main "$@"

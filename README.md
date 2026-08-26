@@ -1,0 +1,61 @@
+# Theme Drift
+
+Theme Drift is a native Omarchy Shell plugin for people who want their desktop to feel fresh without losing control.
+
+## Install
+
+```bash
+omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
+```
+
+## Requirements and behavior
+
+- Omarchy Quattro and its standard `omarchy`, `jq`, `curl`, `perl`, `git`, and `flock` commands.
+- Network access when refreshing the community catalog or installing a catalog-only theme.
+- Theme Drift reads the curated catalog from `https://omarchy.org/themes/` and caches its metadata for six hours.
+- Community theme repositories are third-party code and assets. Theme Drift delegates installation and activation to Omarchy's supported `omarchy theme install` and `omarchy theme set` commands.
+- Theme Drift writes only its own state under `~/.local/state/theme-drift/`. It does not overwrite Omarchy or Hyprland configuration files.
+
+## What it does
+
+- Selects one different eligible theme from the full Omarchy catalog per machine boot.
+- Uses an exhaustive shuffled cycle: every eligible theme appears once before any theme repeats.
+- Merges built-in, installed community, and catalog-only themes in a wallpaper-led gallery.
+- Lazily installs catalog-only themes through Omarchy's official installer before applying them.
+- Keeps a dedicated Favorites collection.
+- Hides disliked themes from future rotation.
+- Lets you apply any theme immediately or keep one permanently.
+- Preserves favorites and hidden themes when rotation is paused.
+
+The official catalog is refreshed every six hours. New catalog entries and themes installed by any other tool join the unfinished cycle automatically. Catalog-only themes use remote previews and are downloaded only when selected manually or by rotation. A failed download remains queued for a later retry.
+
+The first installation records the current boot without changing the active theme. Automatic rotation begins on the next boot.
+
+## Keyboard
+
+| Key | Action |
+| --- | --- |
+| `Left` / `Right` | Browse themes |
+| `Enter` | Apply selected theme |
+| `F` | Favorite or unfavorite |
+| `H` | Hide or restore |
+| `P` | Make selected theme permanent |
+| `R` | Resume once-per-boot rotation |
+| `1`, `2`, `3` | Discover, Favorites, Hidden |
+| `Esc` | Close |
+
+State is stored in `~/.local/state/theme-drift/config.json`. The plugin only calls Omarchy's public `omarchy theme` commands and never edits stock Omarchy files.
+
+Catalog-only selections clone their public Git repository into `~/.config/omarchy/themes/` through `omarchy theme install`. Over time, exhaustive rotation can therefore use additional disk space as more catalog themes take their turn. Installed themes remain available after removing Theme Drift.
+
+## Remove
+
+```bash
+omarchy plugin remove io.github.da5ater.theme-drift --yes
+```
+
+The removal command deletes the plugin but leaves its small preference file and any themes Omarchy installed. To remove Theme Drift's preferences as well:
+
+```bash
+rm ~/.local/state/theme-drift/config.json ~/.local/state/theme-drift/catalog.tsv
+```
