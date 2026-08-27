@@ -21,7 +21,7 @@ omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
 - Selects one different installed, eligible theme per machine boot.
 - Uses an exhaustive shuffled cycle: every installed, eligible theme appears once before any theme repeats.
 - Merges built-in, installed community, and catalog-only themes in a wallpaper-led gallery.
-- Offers one catalog-only theme in a small **TRY NEW ONE ✨** confirmation popup after boot.
+- Offers one catalog-only theme in a **TRY NEW ONE ✨** confirmation popup after boot, including a large wallpaper preview and the exact repository source.
 - Installs catalog-only themes only after an explicit **Yes** in that popup or an explicit Apply/Permanent action in the gallery.
 - Keeps a dedicated Favorites collection.
 - Hides disliked themes from future rotation.

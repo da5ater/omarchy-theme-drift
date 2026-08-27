@@ -18,6 +18,12 @@ Item {
     try { return JSON.parse(String(raw || "")) } catch (e) { return null }
   }
 
+  function previewSource(value) {
+    var source = String(value || "")
+    if (!source) return ""
+    return source.indexOf("https://") === 0 || source.indexOf("http://") === 0 ? source : "file://" + source
+  }
+
   function dismissSuggestion() {
     promptVisible = false
     suggestion = null
@@ -115,7 +121,7 @@ Item {
     BorderSurface {
       id: promptCard
       anchors.centerIn: parent
-      width: Math.min(Style.space(500), suggestionWindow.width - Style.space(40))
+      width: Math.min(Style.space(620), suggestionWindow.width - Style.space(40))
       height: promptContent.implicitHeight + Style.space(48)
       radius: Style.cornerRadius * 2
       color: Color.menu.background
@@ -162,6 +168,56 @@ Item {
             font.pixelSize: Style.font.title
             font.weight: Font.DemiBold
             wrapMode: Text.Wrap
+          }
+
+          Rectangle {
+            Layout.fillWidth: true
+            Layout.preferredHeight: Math.min(Style.space(280), Math.max(Style.space(170), suggestionWindow.height * 0.32))
+            radius: Style.cornerRadius * 1.5
+            color: Color.menu.selectedBackground
+            border.color: Color.menu.border
+            border.width: Math.max(1, Style.normalBorderWidth)
+            clip: true
+
+            Text {
+              anchors.centerIn: parent
+              text: promptPreview.status === Image.Error ? "Preview unavailable" : "Loading preview…"
+              color: Color.menu.selectedText
+              opacity: 0.72
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+            }
+
+            Image {
+              id: promptPreview
+              anchors.fill: parent
+              source: root.suggestion ? root.previewSource(root.suggestion.preview) : ""
+              fillMode: Image.PreserveAspectCrop
+              asynchronous: true
+              cache: true
+              opacity: status === Image.Ready ? 1 : 0
+              Accessible.name: root.suggestion ? "Preview of " + root.suggestion.name : "Theme preview"
+              Behavior on opacity { NumberAnimation { duration: 220; easing.type: Easing.OutCubic } }
+            }
+
+            Rectangle {
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.bottom: parent.bottom
+              height: Style.space(42)
+              color: "#73000000"
+              Text {
+                anchors.left: parent.left
+                anchors.verticalCenter: parent.verticalCenter
+                anchors.leftMargin: Style.space(14)
+                text: "WALLPAPER PREVIEW"
+                color: "white"
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                font.weight: Font.Bold
+                font.letterSpacing: 1.2
+              }
+            }
           }
 
           Text {
