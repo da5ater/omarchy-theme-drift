@@ -15,6 +15,7 @@ omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
 - Theme Drift reads the curated catalog from `https://omarchy.org/themes/` and caches its metadata for six hours.
 - Community theme repositories are third-party code and assets. Theme Drift delegates installation and activation to Omarchy's supported `omarchy theme install` and `omarchy theme set` commands.
 - Theme Drift writes only its own state under `~/.local/state/theme-drift/`. It does not overwrite Omarchy or Hyprland configuration files.
+- State is kept in a verified private directory. Configuration updates use secure same-directory temporary files and atomic replacement; process serialization uses a directory-descriptor lock in a verified private runtime directory.
 
 ## What it does
 

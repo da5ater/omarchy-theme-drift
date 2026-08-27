@@ -44,6 +44,10 @@ CATALOG
 
 "$helper" list >/dev/null
 config="$XDG_STATE_HOME/theme-drift/config.json"
+[[ -f $config && ! -L $config ]]
+[[ $(stat -c %a "$config") == 600 ]]
+[[ -d $XDG_RUNTIME_DIR/theme-drift && ! -L $XDG_RUNTIME_DIR/theme-drift ]]
+[[ $(stat -c %a "$XDG_RUNTIME_DIR/theme-drift") == 700 ]]
 jq '.lastBootId=""' "$config" >"$config.tmp"
 mv "$config.tmp" "$config"
 
@@ -91,4 +95,27 @@ if grep -q '^install:' "$log_file"; then
   exit 1
 fi
 
-printf 'PASS: unattended installs blocked; approved themes install and join rotation\n'
+config_attack_state="$test_root/config-attack-state"
+config_attack_runtime="$test_root/config-attack-runtime"
+config_victim="$test_root/config-victim"
+mkdir -m 700 -p "$config_attack_state/theme-drift" "$config_attack_runtime"
+printf 'do not truncate configuration victim\n' >"$config_victim"
+ln -s "$config_victim" "$config_attack_state/theme-drift/config.json"
+if XDG_STATE_HOME="$config_attack_state" XDG_RUNTIME_DIR="$config_attack_runtime" "$helper" list >/dev/null 2>&1; then
+  printf 'FAIL: symlinked configuration was accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'do not truncate configuration victim' "$config_victim"
+
+lock_attack_runtime="$test_root/lock-attack-runtime"
+lock_victim="$test_root/lock-victim"
+mkdir -m 700 "$lock_attack_runtime"
+printf 'do not truncate lock victim\n' >"$lock_victim"
+ln -s "$lock_victim" "$lock_attack_runtime/theme-drift"
+if XDG_RUNTIME_DIR="$lock_attack_runtime" "$helper" list >/dev/null 2>&1; then
+  printf 'FAIL: symlinked runtime lock directory was accepted\n' >&2
+  exit 1
+fi
+grep -Fxq 'do not truncate lock victim' "$lock_victim"
+
+printf 'PASS: consent and symlink protections hold; approved themes join rotation\n'

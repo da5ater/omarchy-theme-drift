@@ -1,14 +1,75 @@
 #!/usr/bin/env bash
 set -euo pipefail
+umask 077
 
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/theme-drift"
-config_file="$state_dir/config.json"
-catalog_file="$state_dir/catalog.tsv"
-lock_file="${XDG_RUNTIME_DIR:-/tmp}/theme-drift.lock"
+state_path=""
+state_fd=""
+config_file=""
+catalog_file=""
+runtime_dir=""
+lock_fd=""
 omarchy_root="${OMARCHY_PATH:-/usr/share/omarchy}"
 user_themes="$HOME/.config/omarchy/themes"
 catalog_url="${THEME_DRIFT_CATALOG_URL:-https://omarchy.org/themes/}"
 catalog_max_age="${THEME_DRIFT_CATALOG_MAX_AGE:-21600}"
+
+fail_unsafe_path() {
+  printf 'Theme Drift refused unsafe %s: %s\n' "$1" "$2" >&2
+  return 1
+}
+
+verify_private_directory_fd() {
+  local fd=$1 label=$2 details kind owner mode mode_value
+  details=$(stat -Lc $'%F\t%u\t%a' "/proc/$$/fd/$fd") || fail_unsafe_path "$label directory" "unreadable descriptor"
+  IFS=$'\t' read -r kind owner mode <<<"$details"
+  [[ $kind == directory ]] || fail_unsafe_path "$label directory" "descriptor is not a directory"
+  [[ $owner == "$(id -u)" ]] || fail_unsafe_path "$label directory" "not owned by the current user"
+  mode_value=$((8#$mode))
+  (( (mode_value & 0077) == 0 )) || fail_unsafe_path "$label directory" "permissions must not grant group or other access"
+}
+
+prepare_private_directory() {
+  local path=$1 label=$2
+  if [[ -L $path ]]; then
+    fail_unsafe_path "$label directory" "symbolic links are not allowed"
+  fi
+  if [[ ! -e $path ]]; then
+    mkdir -m 700 -- "$path" 2>/dev/null || true
+  fi
+  [[ -d $path && ! -L $path ]] || fail_unsafe_path "$label directory" "not a real directory"
+  [[ $(stat -c %u -- "$path") == "$(id -u)" ]] || fail_unsafe_path "$label directory" "not owned by the current user"
+  chmod 700 -- "$path"
+}
+
+open_state_directory() {
+  local state_parent
+  state_parent=${state_dir%/*}
+  mkdir -p -- "$state_parent"
+  prepare_private_directory "$state_dir" "state"
+  exec {state_fd}<"$state_dir"
+  verify_private_directory_fd "$state_fd" "state"
+  state_path="/proc/$$/fd/$state_fd"
+  config_file="$state_path/config.json"
+  catalog_file="$state_path/catalog.tsv"
+}
+
+acquire_lock() {
+  local runtime_root
+  if [[ -n ${XDG_RUNTIME_DIR:-} ]]; then
+    runtime_root=$XDG_RUNTIME_DIR
+    [[ -d $runtime_root && ! -L $runtime_root ]] || fail_unsafe_path "runtime root" "not a real directory"
+    [[ $(stat -c %u -- "$runtime_root") == "$(id -u)" ]] || fail_unsafe_path "runtime root" "not owned by the current user"
+    runtime_dir="${runtime_root%/}/theme-drift"
+  else
+    runtime_dir="/tmp/theme-drift-runtime-$(id -u)"
+  fi
+
+  prepare_private_directory "$runtime_dir" "runtime"
+  exec {lock_fd}<"$runtime_dir"
+  verify_private_directory_fd "$lock_fd" "runtime"
+  flock "$lock_fd"
+}
 
 boot_id() {
   cat /proc/sys/kernel/random/boot_id 2>/dev/null || printf 'unknown\n'
@@ -16,16 +77,33 @@ boot_id() {
 
 write_config() {
   local temporary
-  temporary=$(mktemp "$state_dir/config.XXXXXX")
-  cat >"$temporary"
-  mv "$temporary" "$config_file"
+  temporary=$(mktemp "$state_path/.config.json.XXXXXX")
+  if ! cat >"$temporary"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
+  if ! mv -fT -- "$temporary" "$config_file"; then
+    rm -f -- "$temporary"
+    return 1
+  fi
 }
 
 ensure_config() {
-  mkdir -p "$state_dir"
-  if [[ ! -f $config_file ]]; then
-    jq -n --arg boot "$(boot_id)" '{version:4,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,lastSuggestionBootId:null,rotationQueue:[],rotationCycle:[]}' >"$config_file"
-  elif [[ $(jq -r '.version // 1' "$config_file") -lt 4 ]]; then
+  local links owner
+  if [[ -L $config_file ]]; then
+    fail_unsafe_path "configuration" "symbolic links are not allowed"
+  fi
+  if [[ ! -e $config_file ]]; then
+    jq -n --arg boot "$(boot_id)" '{version:4,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,lastSuggestionBootId:null,rotationQueue:[],rotationCycle:[]}' | write_config
+  elif [[ ! -f $config_file ]]; then
+    fail_unsafe_path "configuration" "not a regular file"
+  else
+    owner=$(stat -c %u -- "$config_file")
+    links=$(stat -c %h -- "$config_file")
+    [[ $owner == "$(id -u)" ]] || fail_unsafe_path "configuration" "not owned by the current user"
+    [[ $links == 1 ]] || fail_unsafe_path "configuration" "hard-linked files are not allowed"
+  fi
+  if [[ $(jq -r '.version // 1' "$config_file") -lt 4 ]]; then
     jq '.version=4 | .lastSuggestionBootId=(.lastSuggestionBootId // null) | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
   fi
 }
@@ -91,8 +169,8 @@ refresh_catalog() {
     return
   fi
 
-  html_file=$(mktemp "$state_dir/catalog.html.XXXXXX")
-  parsed_file=$(mktemp "$state_dir/catalog.tsv.XXXXXX")
+  html_file=$(mktemp "$state_path/.catalog.html.XXXXXX")
+  parsed_file=$(mktemp "$state_path/.catalog.tsv.XXXXXX")
   if curl --fail --silent --show-error --location --max-time 15 "$catalog_url" --output "$html_file" \
       && parse_catalog "$html_file" >"$parsed_file" \
       && [[ $(wc -l <"$parsed_file") -ge 10 ]]; then
@@ -278,9 +356,9 @@ suggest_theme() {
 main() {
   local command=${1:-list} slug repo config is_favorite
   shift || true
+  open_state_directory
+  acquire_lock
   ensure_config
-  exec 9>"$lock_file"
-  flock 9
 
   case "$command" in
     list) list_themes ;;
