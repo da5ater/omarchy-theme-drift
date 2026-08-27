@@ -21,8 +21,15 @@ Rectangle {
   border.color: activeFocus || mouse.containsMouse ? Color.accent : outline
   scale: mouse.pressed ? 0.98 : 1
   opacity: enabled ? 1 : 0.45
+  activeFocusOnTab: true
   Accessible.role: Accessible.Button
   Accessible.name: label
+
+  Keys.onPressed: function(event) {
+    if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter && event.key !== Qt.Key_Space) return
+    root.clicked()
+    event.accepted = true
+  }
 
   Behavior on scale { NumberAnimation { duration: 110; easing.type: Easing.OutCubic } }
 
@@ -51,6 +58,7 @@ Rectangle {
     enabled: root.enabled
     hoverEnabled: true
     cursorShape: Qt.PointingHandCursor
+    onPressed: root.forceActiveFocus()
     onClicked: root.clicked()
   }
 }

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "io.github.da5ater.theme-drift",
   "name": "Theme Drift",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Mohamed Osama Mohamed Khater",
   "license": "MIT",
-  "description": "Browse and rotate through the full Omarchy theme catalog, with favorites, hidden themes, and permanent mode.",
+  "description": "Browse the full Omarchy theme catalog and safely rotate installed themes, with favorites, suggestions, and permanent mode.",
   "kinds": ["bar-widget", "overlay", "service"],
   "keepLoaded": true,
   "entryPoints": {

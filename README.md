@@ -18,16 +18,17 @@ omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
 
 ## What it does
 
-- Selects one different eligible theme from the full Omarchy catalog per machine boot.
-- Uses an exhaustive shuffled cycle: every eligible theme appears once before any theme repeats.
+- Selects one different installed, eligible theme per machine boot.
+- Uses an exhaustive shuffled cycle: every installed, eligible theme appears once before any theme repeats.
 - Merges built-in, installed community, and catalog-only themes in a wallpaper-led gallery.
-- Lazily installs catalog-only themes through Omarchy's official installer before applying them.
+- Offers one catalog-only theme in a small **TRY NEW ONE ✨** confirmation popup after boot.
+- Installs catalog-only themes only after an explicit **Yes** in that popup or an explicit Apply/Permanent action in the gallery.
 - Keeps a dedicated Favorites collection.
 - Hides disliked themes from future rotation.
 - Lets you apply any theme immediately or keep one permanently.
 - Preserves favorites and hidden themes when rotation is paused.
 
-The official catalog is refreshed every six hours. New catalog entries and themes installed by any other tool join the unfinished cycle automatically. Catalog-only themes use remote previews and are downloaded only when selected manually or by rotation. A failed download remains queued for a later retry.
+The official catalog is refreshed every six hours. New catalog entries appear in Discover automatically, and themes installed by any tool join the unfinished rotation cycle automatically. Catalog-only themes use remote previews but are never installed unattended. The confirmation UI shows the exact GitHub repository and passes that approved URL directly to Omarchy's installer; automatic boot rotation never consumes repository URLs from the mutable catalog.
 
 The first installation records the current boot without changing the active theme. Automatic rotation begins on the next boot.
 
@@ -46,7 +47,7 @@ The first installation records the current boot without changing the active them
 
 State is stored in `~/.local/state/theme-drift/config.json`. The plugin only calls Omarchy's public `omarchy theme` commands and never edits stock Omarchy files.
 
-Catalog-only selections clone their public Git repository into `~/.config/omarchy/themes/` through `omarchy theme install`. Over time, exhaustive rotation can therefore use additional disk space as more catalog themes take their turn. Installed themes remain available after removing Theme Drift.
+Approved catalog-only selections clone their displayed public GitHub repository into `~/.config/omarchy/themes/` through `omarchy theme install`. Installed themes remain available after removing Theme Drift.
 
 ## Remove
 

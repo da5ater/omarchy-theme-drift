@@ -24,9 +24,9 @@ write_config() {
 ensure_config() {
   mkdir -p "$state_dir"
   if [[ ! -f $config_file ]]; then
-    jq -n --arg boot "$(boot_id)" '{version:3,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,rotationQueue:[],rotationCycle:[]}' >"$config_file"
-  elif [[ $(jq -r '.version // 1' "$config_file") -lt 3 ]]; then
-    jq '.version=3 | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
+    jq -n --arg boot "$(boot_id)" '{version:4,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,lastSuggestionBootId:null,rotationQueue:[],rotationCycle:[]}' >"$config_file"
+  elif [[ $(jq -r '.version // 1' "$config_file") -lt 4 ]]; then
+    jq '.version=4 | .lastSuggestionBootId=(.lastSuggestionBootId // null) | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
   fi
 }
 
@@ -109,15 +109,6 @@ catalog_rows() {
   [[ -s $catalog_file ]] && cat "$catalog_file"
 }
 
-catalog_repo_for() {
-  local wanted=$1 repo image name slug
-  while IFS=$'\t' read -r repo image name; do
-    [[ -n $repo ]] || continue
-    slug=$(repo_slug "$repo")
-    [[ $slug == "$wanted" ]] && { printf '%s\n' "$repo"; return; }
-  done < <(catalog_rows)
-}
-
 emit_theme() {
   local name=$1 slug=$2 preview=$3 installed=$4 catalog=$5 repo=$6 current=$7 config=$8
   jq -cn \
@@ -170,20 +161,32 @@ update_array() {
   fi
 }
 
+approved_repo_for_slug() {
+  local slug=$1 repo=$2
+  [[ $repo =~ ^https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(\.git)?/?$ ]] || {
+    printf 'Only an explicitly approved HTTPS GitHub theme repository can be installed\n' >&2
+    return 1
+  }
+  [[ $(repo_slug "$repo") == "$slug" ]] || {
+    printf 'Approved repository does not match theme %s\n' "$slug" >&2
+    return 1
+  }
+}
+
 install_and_apply() {
-  local slug=$1 repo
+  local slug=$1 approved_repo=${2:-}
   if installed_theme "$slug"; then
     omarchy theme set "$slug"
     return
   fi
 
-  repo=$(catalog_repo_for "$slug")
-  if [[ -z $repo ]]; then
-    printf 'Theme %s is not installed and is no longer in the catalog\n' "$slug" >&2
+  if [[ -z $approved_repo ]]; then
+    printf 'Theme %s is not installed; explicit approval of its repository is required\n' "$slug" >&2
     return 1
   fi
-  printf 'Installing %s from %s\n' "$slug" "$repo" >&2
-  omarchy theme install "$repo"
+  approved_repo_for_slug "$slug" "$approved_repo"
+  printf 'Installing %s from explicitly approved source %s\n' "$slug" "$approved_repo" >&2
+  omarchy theme install "$approved_repo"
   installed_theme "$slug" || {
     printf 'Omarchy installed the repository, but theme %s was not discovered\n' "$slug" >&2
     return 1
@@ -209,7 +212,7 @@ rotate_now() {
 
   current=$(current_slug)
   theme_json=$(list_themes)
-  eligible_json=$(jq -c '[.[] | select(.hidden == false) | .slug] | unique' <<<"$theme_json")
+  eligible_json=$(jq -c '[.[] | select(.hidden == false and .installed == true) | .slug] | unique' <<<"$theme_json")
   if [[ $(jq 'length' <<<"$eligible_json") -eq 0 ]]; then
     printf 'No themes are eligible for rotation\n' >&2
     return 1
@@ -244,8 +247,36 @@ rotate_now() {
   printf 'Drifted to %s\n' "$chosen"
 }
 
+suggest_theme() {
+  local config current_boot theme_json suggestion slug repo
+  ensure_config
+  config=$(<"$config_file")
+  current_boot=$(boot_id)
+
+  if [[ $(jq -r '.lastSuggestionBootId // ""' <<<"$config") == "$current_boot" ]]; then
+    return
+  fi
+  if [[ $(jq -r '.rotationEnabled' <<<"$config") != true ]]; then
+    jq --arg boot "$current_boot" '.lastSuggestionBootId=$boot' "$config_file" | write_config
+    return
+  fi
+
+  theme_json=$(list_themes)
+  suggestion=""
+  while IFS= read -r candidate; do
+    slug=$(jq -r '.slug' <<<"$candidate")
+    repo=$(jq -r '.repo' <<<"$candidate")
+    if approved_repo_for_slug "$slug" "$repo" 2>/dev/null; then
+      suggestion=$candidate
+      break
+    fi
+  done < <(jq -c '.[] | select(.catalog == true and .installed == false and .hidden == false)' <<<"$theme_json" | shuf)
+  jq --arg boot "$current_boot" '.lastSuggestionBootId=$boot' "$config_file" | write_config
+  [[ -n $suggestion ]] && printf '%s\n' "$suggestion"
+}
+
 main() {
-  local command=${1:-list} slug config is_favorite
+  local command=${1:-list} slug repo config is_favorite
   shift || true
   ensure_config
   exec 9>"$lock_file"
@@ -258,6 +289,7 @@ main() {
       refresh_catalog
       printf 'Catalog refreshed: %s themes\n' "$(wc -l <"$catalog_file")"
       ;;
+    suggest) suggest_theme ;;
     favorite)
       slug=${1:?theme slug required}
       is_favorite=$(jq -r --arg slug "$slug" '.favorites | index($slug) != null' "$config_file")
@@ -287,13 +319,15 @@ main() {
       ;;
     apply)
       slug=${1:?theme slug required}
-      install_and_apply "$slug"
+      repo=${2:-}
+      install_and_apply "$slug" "$repo"
       jq --arg slug "$slug" '.lastTheme=$slug' "$config_file" | write_config
       printf 'Theme applied\n'
       ;;
     permanent)
       slug=${1:?theme slug required}
-      install_and_apply "$slug"
+      repo=${2:-}
+      install_and_apply "$slug" "$repo"
       jq --arg slug "$slug" '.permanent=$slug | .rotationEnabled=false | .lastTheme=$slug' "$config_file" | write_config
       update_array hidden "$slug" remove
       printf 'Permanent mode enabled\n'
@@ -305,7 +339,7 @@ main() {
     rotate-boot) rotate_now boot ;;
     rotate-now) rotate_now manual ;;
     *)
-      printf 'Usage: theme-drift {list|refresh-catalog|favorite|hide|restore|apply|permanent|resume|rotate-boot|rotate-now} [theme]\n' >&2
+      printf 'Usage: theme-drift {list|refresh-catalog|suggest|favorite|hide|restore|apply|permanent|resume|rotate-boot|rotate-now} [theme] [approved-repository]\n' >&2
       return 2
       ;;
   esac

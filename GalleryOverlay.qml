@@ -101,11 +101,11 @@ Item {
   }
 
   function applySelected() {
-    if (selectedTheme) runAction(["apply", selectedTheme.slug], (selectedTheme.installed ? "Applying " : "Installing and applying ") + selectedTheme.name + "…")
+    if (selectedTheme) runAction(["apply", selectedTheme.slug, selectedTheme.installed ? "" : selectedTheme.repo], (selectedTheme.installed ? "Applying " : "Installing and applying ") + selectedTheme.name + "…")
   }
 
   function makePermanent() {
-    if (selectedTheme) runAction(["permanent", selectedTheme.slug], (selectedTheme.installed ? "Making " : "Installing and keeping ") + selectedTheme.name + "…")
+    if (selectedTheme) runAction(["permanent", selectedTheme.slug, selectedTheme.installed ? "" : selectedTheme.repo], (selectedTheme.installed ? "Making " : "Installing and keeping ") + selectedTheme.name + "…")
   }
 
   Process {
@@ -304,6 +304,15 @@ Item {
                 font.pixelSize: Style.font.caption
                 font.weight: Font.Medium
                 font.letterSpacing: 1.1
+              }
+              Text {
+                visible: root.selectedTheme && !root.selectedTheme.installed
+                text: root.selectedTheme ? "SOURCE  " + root.selectedTheme.repo : ""
+                color: "#B3FFFFFF"
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+                elide: Text.ElideMiddle
+                width: parent.width
               }
             }
 
