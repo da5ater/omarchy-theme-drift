@@ -101,7 +101,13 @@ Item {
 
   function toggleFavoritesOnlyRotation() {
     var favoritesOnly = themes.length > 0 && themes[0].rotationScope === "favorites"
-    runAction(["rotation-mode", favoritesOnly ? "all" : "favorites"], favoritesOnly ? "Including all installed themes…" : "Drifting through favorites only…")
+    setRotationMode(favoritesOnly ? "all" : "favorites")
+  }
+
+  function setRotationMode(mode) {
+    var favoritesOnly = themes.length > 0 && themes[0].rotationScope === "favorites"
+    if ((mode === "favorites") === favoritesOnly && !themes.some(function(theme) { return theme.permanent })) return
+    runAction(["rotation-mode", mode], mode === "favorites" ? "Drifting through favorites only…" : "Including all installed themes…")
   }
 
   function toggleHidden() {
@@ -216,7 +222,9 @@ Item {
                 font.letterSpacing: 2
               }
               Text {
-                text: root.selectedTheme ? root.selectedTheme.name : "Your Omarchy, never stale"
+                text: root.themes.some(function(theme) { return theme.permanent })
+                  ? "Permanent theme selected · choose a boot mode to resume drifting"
+                  : (root.selectedTheme ? root.selectedTheme.name : "Your Omarchy, never stale")
                 color: Color.menu.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.title
@@ -224,57 +232,71 @@ Item {
               }
             }
 
-            Rectangle {
-              implicitWidth: modeRow.implicitWidth + Style.space(24)
-              implicitHeight: Style.space(34)
-              radius: height / 2
-              color: Color.menu.selectedBackground
-              Row {
-                id: modeRow
-                anchors.centerIn: parent
-                spacing: Style.space(8)
-                Text { text: root.themes.some(function(t) { return t.permanent }) ? "󰐃" : (root.themes.length > 0 && root.themes[0].rotationScope === "favorites" ? "󰋑" : "󰒟"); color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                Text { text: root.themes.some(function(t) { return t.permanent }) ? "Permanent" : (root.themes.length > 0 && root.themes[0].rotationScope === "favorites" ? "Favorites only" : "All installed"); color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.weight: Font.Medium }
+            DriftButton { label: "Close"; icon: "󰅖"; onClicked: root.dismiss() }
+          }
+
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
+            Row {
+              spacing: Style.space(8)
+              Repeater {
+                model: [
+                  { key: "discover", label: "Discover", shortcut: "1" },
+                  { key: "favorites", label: "Favorites", shortcut: "2" },
+                  { key: "hidden", label: "Hidden", shortcut: "3" }
+                ]
+                Rectangle {
+                  required property var modelData
+                  width: tabContent.implicitWidth + Style.space(24)
+                  height: Style.space(34)
+                  radius: height / 2
+                  color: root.view === modelData.key ? Color.menu.selectedBackground : "transparent"
+                  border.color: root.view === modelData.key ? Color.menu.selectedBackground : Color.menu.border
+                  border.width: Math.max(1, Style.normalBorderWidth)
+                  Row {
+                    id: tabContent
+                    anchors.centerIn: parent
+                    spacing: Style.space(8)
+                    Text { text: modelData.label; color: root.view === modelData.key ? Color.menu.selectedText : Color.menu.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                    Text { text: modelData.shortcut; color: root.view === modelData.key ? Color.menu.selectedText : Qt.darker(Color.menu.text, 1.4); font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  }
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.chooseView(modelData.key) }
+                }
               }
-              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleFavoritesOnlyRotation() }
+            }
+
+            Item { Layout.fillWidth: true }
+
+            Text {
+              text: "BOOT DRIFT"
+              color: Color.menu.text
+              opacity: 0.62
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              font.weight: Font.Bold
+              font.letterSpacing: 1.2
+            }
+
+            DriftButton {
+              label: "All installed"
+              icon: "󰒟"
+              primary: root.themes.length > 0 && root.themes[0].rotationScope !== "favorites" && !root.themes.some(function(theme) { return theme.permanent })
+              onClicked: root.setRotationMode("all")
+            }
+
+            DriftButton {
+              label: "Favorites only"
+              icon: "󰋑"
+              primary: root.themes.length > 0 && root.themes[0].rotationScope === "favorites" && !root.themes.some(function(theme) { return theme.permanent })
+              onClicked: root.setRotationMode("favorites")
             }
 
             DriftButton {
               visible: !!root.currentTheme
-              label: root.currentTheme && root.currentTheme.favorite ? "Unfavorite current" : "Favorite current"
-              icon: root.currentTheme && root.currentTheme.favorite ? "󰓎" : "󰋑"
+              label: root.currentTheme && root.currentTheme.favorite ? "Current saved" : "Save current"
+              icon: root.currentTheme && root.currentTheme.favorite ? "󰄬" : "󰋑"
               onClicked: root.toggleCurrentFavorite()
-            }
-
-            DriftButton { label: "Close"; icon: "󰅖"; onClicked: root.dismiss() }
-          }
-
-          Row {
-            Layout.fillWidth: true
-            spacing: Style.space(8)
-            Repeater {
-              model: [
-                { key: "discover", label: "Discover", shortcut: "1" },
-                { key: "favorites", label: "Favorites", shortcut: "2" },
-                { key: "hidden", label: "Hidden", shortcut: "3" }
-              ]
-              Rectangle {
-                required property var modelData
-                width: tabContent.implicitWidth + Style.space(24)
-                height: Style.space(34)
-                radius: height / 2
-                color: root.view === modelData.key ? Color.menu.selectedBackground : "transparent"
-                border.color: root.view === modelData.key ? Color.menu.selectedBackground : Color.menu.border
-                border.width: Math.max(1, Style.normalBorderWidth)
-                Row {
-                  id: tabContent
-                  anchors.centerIn: parent
-                  spacing: Style.space(8)
-                  Text { text: modelData.label; color: root.view === modelData.key ? Color.menu.selectedText : Color.menu.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                  Text { text: modelData.shortcut; color: root.view === modelData.key ? Color.menu.selectedText : Qt.darker(Color.menu.text, 1.4); font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.chooseView(modelData.key) }
-              }
             }
           }
 
