@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "io.github.da5ater.theme-drift",
   "name": "Theme Drift",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "author": "Mohamed Osama Mohamed Khater",
   "license": "MIT",
   "description": "Browse the full Omarchy theme catalog and safely rotate installed themes, with favorites, suggestions, and permanent mode.",

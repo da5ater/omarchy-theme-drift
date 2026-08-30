@@ -94,7 +94,7 @@ ensure_config() {
     fail_unsafe_path "configuration" "symbolic links are not allowed"
   fi
   if [[ ! -e $config_file ]]; then
-    jq -n --arg boot "$(boot_id)" '{version:4,rotationEnabled:true,permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,lastSuggestionBootId:null,rotationQueue:[],rotationCycle:[]}' | write_config
+    jq -n --arg boot "$(boot_id)" '{version:5,rotationEnabled:true,rotationScope:"all",permanent:null,favorites:[],hidden:[],lastTheme:null,lastBootId:$boot,lastSuggestionBootId:null,rotationQueue:[],rotationCycle:[]}' | write_config
   elif [[ ! -f $config_file ]]; then
     fail_unsafe_path "configuration" "not a regular file"
   else
@@ -103,8 +103,8 @@ ensure_config() {
     [[ $owner == "$(id -u)" ]] || fail_unsafe_path "configuration" "not owned by the current user"
     [[ $links == 1 ]] || fail_unsafe_path "configuration" "hard-linked files are not allowed"
   fi
-  if [[ $(jq -r '.version // 1' "$config_file") -lt 4 ]]; then
-    jq '.version=4 | .lastSuggestionBootId=(.lastSuggestionBootId // null) | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
+  if [[ $(jq -r '.version // 1' "$config_file") -lt 5 ]]; then
+    jq '.version=5 | .rotationScope=(if .rotationScope == "favorites" then "favorites" else "all" end) | .lastSuggestionBootId=(.lastSuggestionBootId // null) | .rotationQueue=(.rotationQueue // []) | .rotationCycle=(.rotationCycle // [])' "$config_file" | write_config
   fi
 }
 
@@ -192,7 +192,7 @@ emit_theme() {
   jq -cn \
     --arg name "$name" --arg slug "$slug" --arg preview "$preview" --arg repo "$repo" --arg current "$current" \
     --argjson installed "$installed" --argjson catalog "$catalog" --argjson config "$config" \
-    '{name:$name,slug:$slug,preview:$preview,repo:$repo,installed:$installed,catalog:$catalog,current:($slug==$current),favorite:($config.favorites|index($slug)!=null),hidden:($config.hidden|index($slug)!=null),permanent:($config.permanent==$slug)}'
+    '{name:$name,slug:$slug,preview:$preview,repo:$repo,installed:$installed,catalog:$catalog,current:($slug==$current),favorite:($config.favorites|index($slug)!=null),hidden:($config.hidden|index($slug)!=null),permanent:($config.permanent==$slug),rotationScope:($config.rotationScope // "all")}'
 }
 
 list_themes() {
@@ -290,9 +290,17 @@ rotate_now() {
 
   current=$(current_slug)
   theme_json=$(list_themes)
-  eligible_json=$(jq -c '[.[] | select(.hidden == false and .installed == true) | .slug] | unique' <<<"$theme_json")
+  if [[ $(jq -r '.rotationScope // "all"' <<<"$config") == favorites ]]; then
+    eligible_json=$(jq -c '[.[] | select(.hidden == false and .installed == true and .favorite == true) | .slug] | unique' <<<"$theme_json")
+  else
+    eligible_json=$(jq -c '[.[] | select(.hidden == false and .installed == true) | .slug] | unique' <<<"$theme_json")
+  fi
   if [[ $(jq 'length' <<<"$eligible_json") -eq 0 ]]; then
-    printf 'No themes are eligible for rotation\n' >&2
+    if [[ $(jq -r '.rotationScope // "all"' <<<"$config") == favorites ]]; then
+      printf 'No favorite themes are eligible for rotation\n' >&2
+    else
+      printf 'No themes are eligible for rotation\n' >&2
+    fi
     return 1
   fi
 
@@ -354,7 +362,7 @@ suggest_theme() {
 }
 
 main() {
-  local command=${1:-list} slug repo config is_favorite
+  local command=${1:-list} slug repo config is_favorite mode
   shift || true
   open_state_directory
   acquire_lock
@@ -378,6 +386,29 @@ main() {
         update_array favorites "$slug" add
         update_array hidden "$slug" remove
         printf 'Added to favorites\n'
+      fi
+      ;;
+    favorite-current)
+      slug=$(current_slug)
+      [[ -n $slug ]] || { printf 'Could not identify the current theme\n' >&2; return 1; }
+      is_favorite=$(jq -r --arg slug "$slug" '.favorites | index($slug) != null' "$config_file")
+      if [[ $is_favorite == true ]]; then
+        update_array favorites "$slug" remove
+        printf 'Removed %s from favorites\n' "$slug"
+      else
+        update_array favorites "$slug" add
+        update_array hidden "$slug" remove
+        printf 'Favorited %s\n' "$slug"
+      fi
+      ;;
+    rotation-mode)
+      mode=${1:?rotation mode required}
+      [[ $mode == all || $mode == favorites ]] || { printf 'Rotation mode must be all or favorites\n' >&2; return 2; }
+      jq --arg mode "$mode" '.rotationScope=$mode | .permanent=null | .rotationEnabled=true | .rotationQueue=[] | .rotationCycle=[]' "$config_file" | write_config
+      if [[ $mode == favorites ]]; then
+        printf 'Favorites-only rotation enabled\n'
+      else
+        printf 'All-installed rotation enabled\n'
       fi
       ;;
     hide)
@@ -417,7 +448,7 @@ main() {
     rotate-boot) rotate_now boot ;;
     rotate-now) rotate_now manual ;;
     *)
-      printf 'Usage: theme-drift {list|refresh-catalog|suggest|favorite|hide|restore|apply|permanent|resume|rotate-boot|rotate-now} [theme] [approved-repository]\n' >&2
+      printf 'Usage: theme-drift {list|refresh-catalog|suggest|favorite|favorite-current|rotation-mode|hide|restore|apply|permanent|resume|rotate-boot|rotate-now} [theme] [approved-repository]\n' >&2
       return 2
       ;;
   esac

@@ -87,6 +87,22 @@ mv "$config.tmp" "$config"
 "$helper" apply beta https://github.com/example/omarchy-beta-theme.git >/dev/null
 grep -Fxq 'install:https://github.com/example/omarchy-beta-theme.git' "$log_file"
 
+"$helper" favorite-current >/dev/null
+jq -e '.favorites == ["alpha"]' "$config" >/dev/null
+"$helper" favorite-current >/dev/null
+jq -e '.favorites == []' "$config" >/dev/null
+"$helper" favorite beta >/dev/null
+"$helper" rotation-mode favorites >/dev/null
+: >"$log_file"
+"$helper" rotate-now >/dev/null
+grep -Fxq 'set:beta' "$log_file"
+if grep -q '^set:alpha' "$log_file"; then
+  printf 'FAIL: favorites-only rotation selected a non-favorite\n' >&2
+  exit 1
+fi
+"$helper" rotation-mode all >/dev/null
+jq -e '.rotationScope == "all"' "$config" >/dev/null
+
 : >"$log_file"
 "$helper" rotate-now >/dev/null
 grep -Fxq 'set:beta' "$log_file"

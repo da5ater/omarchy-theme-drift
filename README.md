@@ -19,7 +19,7 @@ omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
 
 ## What it does
 
-- Selects one different installed, eligible theme per machine boot.
+- Selects one different installed, eligible theme per machine boot, either from all installed themes or from Favorites only.
 - Uses an exhaustive shuffled cycle: every installed, eligible theme appears once before any theme repeats.
 - Merges built-in, installed community, and catalog-only themes in a wallpaper-led gallery.
 - Offers one catalog-only theme in a **TRY NEW ONE ✨** confirmation popup after boot, including a large wallpaper preview and the exact repository source.
@@ -40,11 +40,14 @@ The first installation records the current boot without changing the active them
 | `Left` / `Right` | Browse themes |
 | `Enter` | Apply selected theme |
 | `F` | Favorite or unfavorite |
+| `G` | Toggle between all-installed and Favorites-only boot rotation |
 | `H` | Hide or restore |
 | `P` | Make selected theme permanent |
 | `R` | Resume once-per-boot rotation |
 | `1`, `2`, `3` | Discover, Favorites, Hidden |
 | `Esc` | Close |
+
+When you open Theme Drift, the header always shows a **Favorite current** button, so you can save the theme you are using without knowing its name. The adjacent rotation-mode chip is a button: click it to switch between **All installed** and **Favorites only**.
 
 State is stored in `~/.local/state/theme-drift/config.json`. The plugin only calls Omarchy's public `omarchy theme` commands and never edits stock Omarchy files.
 

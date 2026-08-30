@@ -21,6 +21,7 @@ Item {
   property var carouselRef: null
   readonly property string helperPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.da5ater.theme-drift/bin/theme-drift"
   readonly property var selectedTheme: visibleThemes.length > 0 && selectedIndex < visibleThemes.length ? visibleThemes[selectedIndex] : null
+  readonly property var currentTheme: themes.find(function(theme) { return theme.current })
 
   function open(payloadJson) {
     opened = true
@@ -92,6 +93,15 @@ Item {
 
   function toggleFavorite() {
     if (selectedTheme) runAction(["favorite", selectedTheme.slug], selectedTheme.favorite ? "Removing favorite…" : "Adding favorite…")
+  }
+
+  function toggleCurrentFavorite() {
+    if (currentTheme) runAction(["favorite-current"], currentTheme.favorite ? "Removing current favorite…" : "Favoriting your current theme…")
+  }
+
+  function toggleFavoritesOnlyRotation() {
+    var favoritesOnly = themes.length > 0 && themes[0].rotationScope === "favorites"
+    runAction(["rotation-mode", favoritesOnly ? "all" : "favorites"], favoritesOnly ? "Including all installed themes…" : "Drifting through favorites only…")
   }
 
   function toggleHidden() {
@@ -174,6 +184,7 @@ Item {
           else if (event.key === Qt.Key_Right) root.move(1)
           else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) root.applySelected()
           else if (event.key === Qt.Key_F) root.toggleFavorite()
+          else if (event.key === Qt.Key_G) root.toggleFavoritesOnlyRotation()
           else if (event.key === Qt.Key_H) root.toggleHidden()
           else if (event.key === Qt.Key_P) root.makePermanent()
           else if (event.key === Qt.Key_R) root.runAction(["resume"], "Resuming rotation…")
@@ -222,9 +233,17 @@ Item {
                 id: modeRow
                 anchors.centerIn: parent
                 spacing: Style.space(8)
-                Text { text: root.themes.some(function(t) { return t.permanent }) ? "󰐃" : "󰒟"; color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                Text { text: root.themes.some(function(t) { return t.permanent }) ? "Permanent" : "Rotates next boot"; color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.weight: Font.Medium }
+                Text { text: root.themes.some(function(t) { return t.permanent }) ? "󰐃" : (root.themes.length > 0 && root.themes[0].rotationScope === "favorites" ? "󰋑" : "󰒟"); color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                Text { text: root.themes.some(function(t) { return t.permanent }) ? "Permanent" : (root.themes.length > 0 && root.themes[0].rotationScope === "favorites" ? "Favorites only" : "All installed"); color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.weight: Font.Medium }
               }
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.toggleFavoritesOnlyRotation() }
+            }
+
+            DriftButton {
+              visible: !!root.currentTheme
+              label: root.currentTheme && root.currentTheme.favorite ? "Unfavorite current" : "Favorite current"
+              icon: root.currentTheme && root.currentTheme.favorite ? "󰓎" : "󰋑"
+              onClicked: root.toggleCurrentFavorite()
             }
 
             DriftButton { label: "Close"; icon: "󰅖"; onClicked: root.dismiss() }
@@ -376,7 +395,7 @@ Item {
             spacing: Style.space(10)
             Text {
               Layout.fillWidth: true
-              text: root.statusText || "← → browse   Enter apply   F favorite   H hide   P permanent   R resume"
+              text: root.statusText || "← → browse   Enter apply   F favorite   G favorites-only   H hide   P permanent   R resume"
               color: Qt.darker(Color.menu.text, 1.35)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
