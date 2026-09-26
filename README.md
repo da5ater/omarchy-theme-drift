@@ -49,7 +49,7 @@ The first installation records the current boot without changing the active them
 | `1`, `2`, `3` | Discover, Favorites, Hidden |
 | `Esc` | Close |
 
-When you open Theme Drift, the control bar clearly separates browsing from future boot behavior: use **Save current** to favorite the theme already on screen, then choose either **All installed** or **Favorites only** under **Boot drift**.
+Theme Drift opens on the theme currently in use. The single **Favorite** button saves it without requiring its name. Browse other themes with the tabs or thumbnail strip; the same button favorites the selected theme. The single **Drift** button switches between all installed themes and favorites only, or resumes rotation while Permanent mode is active.
 
 State is stored in `~/.local/state/theme-drift/config.json`. The plugin only calls Omarchy's public `omarchy theme` commands and never edits stock Omarchy files.
 

@@ -19,13 +19,15 @@ Item {
   property var themes: []
   property var visibleThemes: []
   property var carouselRef: null
+  property bool focusCurrentOnLoad: false
   readonly property string helperPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.da5ater.theme-drift/bin/theme-drift"
   readonly property var selectedTheme: visibleThemes.length > 0 && selectedIndex < visibleThemes.length ? visibleThemes[selectedIndex] : null
-  readonly property var currentTheme: themes.find(function(theme) { return theme.current })
   readonly property bool permanentMode: themes.some(function(theme) { return theme.permanent })
+  readonly property bool favoritesOnly: themes.length > 0 && themes[0].rotationScope === "favorites"
 
   function open(payloadJson) {
     opened = true
+    focusCurrentOnLoad = true
     statusText = ""
     refresh()
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
@@ -96,18 +98,8 @@ Item {
     if (selectedTheme) runAction(["favorite", selectedTheme.slug], selectedTheme.favorite ? "Removing favorite…" : "Adding favorite…")
   }
 
-  function toggleCurrentFavorite() {
-    if (currentTheme) runAction(["favorite-current"], currentTheme.favorite ? "Removing current favorite…" : "Favoriting your current theme…")
-  }
-
   function toggleFavoritesOnlyRotation() {
-    var favoritesOnly = themes.length > 0 && themes[0].rotationScope === "favorites"
-    setRotationMode(favoritesOnly ? "all" : "favorites")
-  }
-
-  function setRotationMode(mode) {
-    var favoritesOnly = themes.length > 0 && themes[0].rotationScope === "favorites"
-    if ((mode === "favorites") === favoritesOnly && !themes.some(function(theme) { return theme.permanent })) return
+    var mode = favoritesOnly ? "all" : "favorites"
     runAction(["rotation-mode", mode], mode === "favorites" ? "Drifting through favorites only…" : "Including all installed themes…")
   }
 
@@ -136,6 +128,21 @@ Item {
       onStreamFinished: {
         var parsed = root.parseJson(text, [])
         root.themes = Array.isArray(parsed) ? parsed : []
+        if (root.focusCurrentOnLoad) {
+          root.focusCurrentOnLoad = false
+          var current = root.themes.find(function(theme) { return theme.current })
+          if (current) {
+            root.view = current.hidden ? "hidden" : "discover"
+            var index = 0
+            for (var i = 0; i < root.themes.length; i++) {
+              var theme = root.themes[i]
+              if (theme.hidden !== current.hidden) continue
+              if (theme.slug === current.slug) break
+              index++
+            }
+            root.selectedIndex = index
+          }
+        }
         root.rebuildVisible()
       }
     }
@@ -193,7 +200,7 @@ Item {
           if (event.key === Qt.Key_Escape) root.dismiss()
           else if (event.key === Qt.Key_Left) root.move(-1)
           else if (event.key === Qt.Key_Right) root.move(1)
-          else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) root.applySelected()
+          else if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter) && keyCatcher.activeFocus) root.applySelected()
           else if (event.key === Qt.Key_F) root.toggleFavorite()
           else if (event.key === Qt.Key_G) root.toggleFavoritesOnlyRotation()
           else if (event.key === Qt.Key_H) root.toggleHidden()
@@ -216,7 +223,6 @@ Item {
             spacing: Style.space(16)
 
             ColumnLayout {
-              Layout.fillWidth: true
               spacing: Style.space(3)
               Text {
                 text: "THEME DRIFT  ·  " + root.themes.length + " THEMES"
@@ -227,28 +233,15 @@ Item {
                 font.letterSpacing: 2
               }
               Text {
-                text: root.selectedTheme ? root.selectedTheme.name : "Your Omarchy, never stale"
-                color: Color.menu.text
-                font.family: Style.font.family
-                font.pixelSize: Style.font.title
-                font.weight: Font.DemiBold
-              }
-              Text {
                 visible: root.permanentMode
-                text: "Permanent mode is on · boot rotation and new-theme prompts are paused"
+                text: "Permanent mode · automatic changes paused"
                 color: Color.menu.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
               }
             }
 
-            DriftButton {
-              visible: root.permanentMode
-              label: "Resume drift"
-              icon: "󰒟"
-              primary: true
-              onClicked: root.resumeRotation()
-            }
+            Item { Layout.fillWidth: true }
             DriftButton { label: "Close"; icon: "󰅖"; onClicked: root.dismiss() }
           }
 
@@ -259,61 +252,43 @@ Item {
               spacing: Style.space(8)
               Repeater {
                 model: [
-                  { key: "discover", label: "Discover", shortcut: "1" },
-                  { key: "favorites", label: "Favorites", shortcut: "2" },
-                  { key: "hidden", label: "Hidden", shortcut: "3" }
+                  { key: "discover", label: "Discover" },
+                  { key: "favorites", label: "Favorites" },
+                  { key: "hidden", label: "Hidden" }
                 ]
                 Rectangle {
                   required property var modelData
                   width: tabContent.implicitWidth + Style.space(24)
                   height: Style.space(34)
                   radius: height / 2
+                  activeFocusOnTab: true
+                  Accessible.role: Accessible.Button
+                  Accessible.name: modelData.label
                   color: root.view === modelData.key ? Color.menu.selectedBackground : "transparent"
-                  border.color: root.view === modelData.key ? Color.menu.selectedBackground : Color.menu.border
+                  border.color: activeFocus ? Color.accent : (root.view === modelData.key ? Color.menu.selectedBackground : Color.menu.border)
                   border.width: Math.max(1, Style.normalBorderWidth)
+                  Keys.onPressed: function(event) {
+                    if (event.key !== Qt.Key_Return && event.key !== Qt.Key_Enter && event.key !== Qt.Key_Space) return
+                    root.chooseView(modelData.key)
+                    event.accepted = true
+                  }
                   Row {
                     id: tabContent
                     anchors.centerIn: parent
                     spacing: Style.space(8)
                     Text { text: modelData.label; color: root.view === modelData.key ? Color.menu.selectedText : Color.menu.text; font.family: Style.font.family; font.pixelSize: Style.font.body }
-                    Text { text: modelData.shortcut; color: root.view === modelData.key ? Color.menu.selectedText : Qt.darker(Color.menu.text, 1.4); font.family: Style.font.family; font.pixelSize: Style.font.caption }
                   }
-                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.chooseView(modelData.key) }
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onPressed: parent.forceActiveFocus(); onClicked: root.chooseView(modelData.key) }
                 }
               }
             }
 
             Item { Layout.fillWidth: true }
 
-            Text {
-              text: "BOOT DRIFT"
-              color: Color.menu.text
-              opacity: 0.62
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              font.weight: Font.Bold
-              font.letterSpacing: 1.2
-            }
-
             DriftButton {
-              label: "All installed"
-              icon: "󰒟"
-              primary: root.themes.length > 0 && root.themes[0].rotationScope !== "favorites" && !root.permanentMode
-              onClicked: root.setRotationMode("all")
-            }
-
-            DriftButton {
-              label: "Favorites only"
-              icon: "󰋑"
-              primary: root.themes.length > 0 && root.themes[0].rotationScope === "favorites" && !root.permanentMode
-              onClicked: root.setRotationMode("favorites")
-            }
-
-            DriftButton {
-              visible: !!root.currentTheme
-              label: root.currentTheme && root.currentTheme.favorite ? "Current saved" : "Save current"
-              icon: root.currentTheme && root.currentTheme.favorite ? "󰄬" : "󰋑"
-              onClicked: root.toggleCurrentFavorite()
+              label: root.permanentMode ? "Resume drift" : (root.favoritesOnly ? "Drift: favorites" : "Drift: all installed")
+              icon: root.permanentMode ? "󰒟" : (root.favoritesOnly ? "󰋑" : "󰒟")
+              onClicked: root.permanentMode ? root.resumeRotation() : root.toggleFavoritesOnlyRotation()
             }
           }
 
@@ -356,7 +331,7 @@ Item {
                 font.weight: Font.DemiBold
               }
               Text {
-                text: root.selectedTheme ? ((root.selectedTheme.current ? "CURRENT  •  " : "") + (root.selectedTheme.installed ? "INSTALLED  •  " : "CATALOG  •  INSTALLS WHEN APPLIED  •  ") + (root.selectedIndex + 1) + " OF " + root.visibleThemes.length) : (root.view === "favorites" ? "Press F on a theme to build your collection" : "No themes in this collection")
+                text: root.selectedTheme ? ((root.selectedTheme.current ? "CURRENT  •  " : "") + (root.selectedTheme.installed ? "INSTALLED  •  " : "CATALOG  •  INSTALLS WHEN APPLIED  •  ") + (root.selectedIndex + 1) + " OF " + root.visibleThemes.length) : (root.view === "favorites" ? "No favorites yet. Select a theme in Discover to save it." : "No themes in this collection")
                 color: "#CCFFFFFF"
                 font.family: Style.font.family
                 font.pixelSize: Style.font.caption
@@ -390,15 +365,6 @@ Item {
                 Text { id: catalogBadge; anchors.centerIn: parent; text: "󰏗  CATALOG"; color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.weight: Font.Bold }
               }
 
-              Rectangle {
-                visible: root.selectedTheme && root.selectedTheme.favorite
-                anchors.right: parent.right
-                width: favoriteBadge.implicitWidth + Style.space(20)
-                height: Style.space(32)
-                radius: height / 2
-                color: Color.menu.selectedBackground
-                Text { id: favoriteBadge; anchors.centerIn: parent; text: "󰋑  FAVORITE"; color: Color.menu.selectedText; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.weight: Font.Bold }
-              }
             }
           }
 
@@ -425,7 +391,7 @@ Item {
               color: Color.menu.background
               Image { anchors.fill: parent; source: root.previewSource(modelData.preview); fillMode: Image.PreserveAspectCrop; asynchronous: true; cache: true }
               Rectangle { anchors.fill: parent; color: root.selectedIndex === index ? "transparent" : "#4D000000" }
-              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.selectedIndex = index; onDoubleClicked: root.applySelected() }
+              MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.selectedIndex = index }
             }
           }
 
@@ -434,7 +400,7 @@ Item {
             spacing: Style.space(10)
             Text {
               Layout.fillWidth: true
-              text: root.statusText || "← → browse   Enter apply   F favorite   G favorites-only   H hide   P permanent   R resume"
+              text: root.statusText
               color: Qt.darker(Color.menu.text, 1.35)
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
