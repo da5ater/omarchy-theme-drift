@@ -22,6 +22,7 @@ Item {
   readonly property string helperPath: Quickshell.env("HOME") + "/.config/omarchy/plugins/io.github.da5ater.theme-drift/bin/theme-drift"
   readonly property var selectedTheme: visibleThemes.length > 0 && selectedIndex < visibleThemes.length ? visibleThemes[selectedIndex] : null
   readonly property var currentTheme: themes.find(function(theme) { return theme.current })
+  readonly property bool permanentMode: themes.some(function(theme) { return theme.permanent })
 
   function open(payloadJson) {
     opened = true
@@ -124,6 +125,10 @@ Item {
     if (selectedTheme) runAction(["permanent", selectedTheme.slug, selectedTheme.installed ? "" : selectedTheme.repo], (selectedTheme.installed ? "Making " : "Installing and keeping ") + selectedTheme.name + "…")
   }
 
+  function resumeRotation() {
+    runAction(["resume"], "Resuming boot drift…")
+  }
+
   Process {
     id: listProc
     stdout: StdioCollector {
@@ -193,7 +198,7 @@ Item {
           else if (event.key === Qt.Key_G) root.toggleFavoritesOnlyRotation()
           else if (event.key === Qt.Key_H) root.toggleHidden()
           else if (event.key === Qt.Key_P) root.makePermanent()
-          else if (event.key === Qt.Key_R) root.runAction(["resume"], "Resuming rotation…")
+          else if (event.key === Qt.Key_R) root.resumeRotation()
           else if (event.key === Qt.Key_1) root.chooseView("discover")
           else if (event.key === Qt.Key_2) root.chooseView("favorites")
           else if (event.key === Qt.Key_3) root.chooseView("hidden")
@@ -222,16 +227,28 @@ Item {
                 font.letterSpacing: 2
               }
               Text {
-                text: root.themes.some(function(theme) { return theme.permanent })
-                  ? "Permanent theme selected · choose a boot mode to resume drifting"
-                  : (root.selectedTheme ? root.selectedTheme.name : "Your Omarchy, never stale")
+                text: root.selectedTheme ? root.selectedTheme.name : "Your Omarchy, never stale"
                 color: Color.menu.text
                 font.family: Style.font.family
                 font.pixelSize: Style.font.title
                 font.weight: Font.DemiBold
               }
+              Text {
+                visible: root.permanentMode
+                text: "Permanent mode is on · boot rotation and new-theme prompts are paused"
+                color: Color.menu.text
+                font.family: Style.font.family
+                font.pixelSize: Style.font.caption
+              }
             }
 
+            DriftButton {
+              visible: root.permanentMode
+              label: "Resume drift"
+              icon: "󰒟"
+              primary: true
+              onClicked: root.resumeRotation()
+            }
             DriftButton { label: "Close"; icon: "󰅖"; onClicked: root.dismiss() }
           }
 
@@ -281,14 +298,14 @@ Item {
             DriftButton {
               label: "All installed"
               icon: "󰒟"
-              primary: root.themes.length > 0 && root.themes[0].rotationScope !== "favorites" && !root.themes.some(function(theme) { return theme.permanent })
+              primary: root.themes.length > 0 && root.themes[0].rotationScope !== "favorites" && !root.permanentMode
               onClicked: root.setRotationMode("all")
             }
 
             DriftButton {
               label: "Favorites only"
               icon: "󰋑"
-              primary: root.themes.length > 0 && root.themes[0].rotationScope === "favorites" && !root.themes.some(function(theme) { return theme.permanent })
+              primary: root.themes.length > 0 && root.themes[0].rotationScope === "favorites" && !root.permanentMode
               onClicked: root.setRotationMode("favorites")
             }
 
@@ -425,7 +442,7 @@ Item {
             }
             DriftButton { enabled: !!root.selectedTheme; label: root.selectedTheme && root.selectedTheme.favorite ? "Unfavorite" : "Favorite"; icon: root.selectedTheme && root.selectedTheme.favorite ? "󰓎" : "󰋑"; onClicked: root.toggleFavorite() }
             DriftButton { enabled: !!root.selectedTheme; label: root.selectedTheme && root.selectedTheme.hidden ? "Restore" : "Hide"; icon: root.selectedTheme && root.selectedTheme.hidden ? "󰁪" : "󰈉"; onClicked: root.toggleHidden() }
-            DriftButton { enabled: !!root.selectedTheme; label: "Keep"; icon: "󰐃"; onClicked: root.makePermanent() }
+            DriftButton { enabled: !!root.selectedTheme; label: "Keep permanently"; icon: "󰐃"; onClicked: root.makePermanent() }
             DriftButton { enabled: !!root.selectedTheme; label: root.selectedTheme && !root.selectedTheme.installed ? "Install & Apply" : "Apply"; icon: root.selectedTheme && !root.selectedTheme.installed ? "󰇚" : "󰄬"; primary: true; onClicked: root.applySelected() }
           }
         }

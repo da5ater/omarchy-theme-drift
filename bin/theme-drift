@@ -343,7 +343,6 @@ suggest_theme() {
     return
   fi
   if [[ $(jq -r '.rotationEnabled' <<<"$config") != true ]]; then
-    jq --arg boot "$current_boot" '.lastSuggestionBootId=$boot' "$config_file" | write_config
     return
   fi
 
@@ -404,7 +403,7 @@ main() {
     rotation-mode)
       mode=${1:?rotation mode required}
       [[ $mode == all || $mode == favorites ]] || { printf 'Rotation mode must be all or favorites\n' >&2; return 2; }
-      jq --arg mode "$mode" '.rotationScope=$mode | .permanent=null | .rotationEnabled=true | .rotationQueue=[] | .rotationCycle=[]' "$config_file" | write_config
+      jq --arg mode "$mode" '.rotationScope=$mode | .lastSuggestionBootId=(if .rotationEnabled then .lastSuggestionBootId else null end) | .permanent=null | .rotationEnabled=true | .rotationQueue=[] | .rotationCycle=[]' "$config_file" | write_config
       if [[ $mode == favorites ]]; then
         printf 'Favorites-only rotation enabled\n'
       else
@@ -430,8 +429,8 @@ main() {
       slug=${1:?theme slug required}
       repo=${2:-}
       install_and_apply "$slug" "$repo"
-      jq --arg slug "$slug" '.lastTheme=$slug' "$config_file" | write_config
-      printf 'Theme applied\n'
+      jq --arg slug "$slug" '.lastTheme=$slug | if .permanent != null and .permanent != $slug then .permanent=null | .rotationEnabled=true | .lastSuggestionBootId=null else . end' "$config_file" | write_config
+      printf 'Theme applied; boot drift resumes if you changed the permanent theme\n'
       ;;
     permanent)
       slug=${1:?theme slug required}
@@ -442,7 +441,7 @@ main() {
       printf 'Permanent mode enabled\n'
       ;;
     resume)
-      jq '.permanent=null | .rotationEnabled=true' "$config_file" | write_config
+      jq '.lastSuggestionBootId=(if .rotationEnabled then .lastSuggestionBootId else null end) | .permanent=null | .rotationEnabled=true' "$config_file" | write_config
       printf 'Rotation resumes next boot\n'
       ;;
     rotate-boot) rotate_now boot ;;

@@ -81,11 +81,22 @@ suggestion=$("$helper" suggest)
 jq '.lastSuggestionBootId=null | .rotationEnabled=false' "$config" >"$config.tmp"
 mv "$config.tmp" "$config"
 [[ -z $("$helper" suggest) ]]
+jq -e '.lastSuggestionBootId == null' "$config" >/dev/null
 jq '.rotationEnabled=true' "$config" >"$config.tmp"
 mv "$config.tmp" "$config"
 
 "$helper" apply beta https://github.com/example/omarchy-beta-theme.git >/dev/null
 grep -Fxq 'install:https://github.com/example/omarchy-beta-theme.git' "$log_file"
+
+"$helper" permanent alpha >/dev/null
+jq -e '.rotationEnabled == false and .permanent == "alpha"' "$config" >/dev/null
+"$helper" apply beta >/dev/null
+jq -e '.rotationEnabled == true and .permanent == null and .lastSuggestionBootId == null' "$config" >/dev/null
+"$helper" permanent alpha >/dev/null
+"$helper" apply alpha >/dev/null
+jq -e '.rotationEnabled == false and .permanent == "alpha"' "$config" >/dev/null
+"$helper" resume >/dev/null
+jq -e '.rotationEnabled == true and .permanent == null and .lastSuggestionBootId == null' "$config" >/dev/null
 
 "$helper" favorite-current >/dev/null
 jq -e '.favorites == ["alpha"]' "$config" >/dev/null

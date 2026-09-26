@@ -29,6 +29,8 @@ omarchy plugin add https://github.com/da5ater/omarchy-theme-drift.git --enable
 - Lets you apply any theme immediately or keep one permanently.
 - Preserves favorites and hidden themes when rotation is paused.
 
+**Keep permanently** pauses both boot rotation and the new-theme prompt. The gallery shows a **Resume drift** button while paused. Applying a different theme also resumes drift; applying the permanent theme again leaves the pause in place.
+
 The official catalog is refreshed every six hours. New catalog entries appear in Discover automatically, and themes installed by any tool join the unfinished rotation cycle automatically. Catalog-only themes use remote previews but are never installed unattended. The confirmation UI shows the exact GitHub repository and passes that approved URL directly to Omarchy's installer; automatic boot rotation never consumes repository URLs from the mutable catalog.
 
 The first installation records the current boot without changing the active theme. Automatic rotation begins on the next boot.
